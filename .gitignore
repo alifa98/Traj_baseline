@@ -1,0 +1,10 @@
+# python git igonre:
+
+*.pyc
+*.pyo
+
+#cache folder:
+__pycache__/
+raw_data/
+/cache/
+.vscode/
