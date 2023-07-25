@@ -4,6 +4,8 @@ import torch.optim as optim
 import numpy as np
 import os
 from logging import getLogger
+
+import tqdm
 from utils.abstract_executor import AbstractExecutor
 
 from utils.evaluator import TrajLocPredEvaluator
@@ -19,7 +21,7 @@ class TrajLocPredExecutor(AbstractExecutor):
             self.metrics = 'Recall@{}'.format(config['topk'][0])
         self.config = config
         self.model = model.to(self.config['device'])
-        self.tmp_path = './tmp/checkpoint/'
+        self.tmp_path = './tmp/checkpoint/{}/'.format(self.config['model'])
         self.exp_id = self.config.get('exp_id', None)
         self.cache_dir = './cache/{}/model_cache'.format(self.exp_id)
         self.evaluate_res_dir = './cache/{}/evaluate_cache'.format(self.exp_id)
@@ -36,15 +38,15 @@ class TrajLocPredExecutor(AbstractExecutor):
         metrics['loss'] = []
         lr = self.config['learning_rate']
         for epoch in range(self.config['max_epoch']):
-            self._logger.info('start train')
+            self._logger.info('Starting Trainig Epoch {}:'.format(epoch))
             self.model, avg_loss = self.run(train_dataloader, self.model,
                                             self.config['learning_rate'], self.config['clip'])
             self._logger.info('==>Train Epoch:{:4d} Loss:{:.5f} learning_rate:{}'.format(
                 epoch, avg_loss, lr))
             # eval stage
-            self._logger.info('start evaluate')
+            self._logger.info('Starting the Validation for Epoch {}:'.format(epoch))
             avg_eval_acc, avg_eval_loss = self._valid_epoch(eval_dataloader, self.model)
-            self._logger.info('==>Eval Acc:{:.5f} Eval Loss:{:.5f}'.format(avg_eval_acc, avg_eval_loss))
+            self._logger.info('==>Validation Acc:{:.5f} Validation Loss:{:.5f}'.format(avg_eval_acc, avg_eval_loss))
             metrics['accuracy'].append(avg_eval_acc)
             metrics['loss'].append(avg_eval_loss)
             if self.config['hyper_tune']:
@@ -89,9 +91,10 @@ class TrajLocPredExecutor(AbstractExecutor):
     def evaluate(self, test_dataloader):
         self.model.train(False)
         self.evaluator.clear()
-        for batch in test_dataloader:
+        for batch in (pbar := tqdm.tqdm(test_dataloader)):
+            pbar.set_description("Evaluating")
             batch.to_tensor(device=self.config['device'])
-            scores = self.model.predict(batch)
+            scores = self.model.predict_next_n(batch, 5)
             if self.config['evaluate_method'] == 'popularity':
                 evaluate_input = {
                     'uid': batch['uid'].tolist(),
@@ -116,7 +119,8 @@ class TrajLocPredExecutor(AbstractExecutor):
             torch.autograd.set_detect_anomaly(True)
         total_loss = []
         loss_func = self.loss_func or model.calculate_loss
-        for batch in data_loader:
+        for batch in (pbar := tqdm.tqdm(data_loader)):
+            pbar.set_description("Training")
             # one batch, one step
             self.optimizer.zero_grad()
             batch.to_tensor(device=self.config['device'])
@@ -140,7 +144,8 @@ class TrajLocPredExecutor(AbstractExecutor):
         self.evaluator.clear()
         total_loss = []
         loss_func = self.loss_func or model.calculate_loss
-        for batch in data_loader:
+        for batch in (pbar := tqdm.tqdm(data_loader)):
+            pbar.set_description("Validating")
             batch.to_tensor(device=self.config['device'])
             scores = model.predict(batch)
             loss = loss_func(batch)
