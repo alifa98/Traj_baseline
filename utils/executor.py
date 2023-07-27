@@ -15,10 +15,10 @@ class TrajLocPredExecutor(AbstractExecutor):
 
     def __init__(self, config, model, data_feature):
         self.evaluator = TrajLocPredEvaluator(config)
-        if(type(config['topk']) == type(0)):
-            self.metrics = 'Recall@{}'.format(config['topk'])
-        elif(type(config['topk']) == type([])):
-            self.metrics = 'Recall@{}'.format(config['topk'][0])
+        if (type(config['topk']) == type(0)):
+            self.metrics = 'Recall@{}_s0'.format(config['topk'])
+        elif (type(config['topk']) == type([])):
+            self.metrics = 'Recall@{}_s0'.format(config['topk'][0])
         self.config = config
         self.model = model.to(self.config['device'])
         self.tmp_path = './tmp/checkpoint/{}/'.format(self.config['model'])
@@ -29,6 +29,7 @@ class TrajLocPredExecutor(AbstractExecutor):
         self._logger = getLogger()
         self.optimizer = self._build_optimizer()
         self.scheduler = self._build_scheduler()
+        self.predict_next_n = self.config.get('predict_next_n', 1)
 
     def train(self, train_dataloader, eval_dataloader):
         if not os.path.exists(self.tmp_path):
@@ -44,9 +45,12 @@ class TrajLocPredExecutor(AbstractExecutor):
             self._logger.info('==>Train Epoch:{:4d} Loss:{:.5f} learning_rate:{}'.format(
                 epoch, avg_loss, lr))
             # eval stage
-            self._logger.info('Starting the Validation for Epoch {}:'.format(epoch))
-            avg_eval_acc, avg_eval_loss = self._valid_epoch(eval_dataloader, self.model)
-            self._logger.info('==>Validation Acc:{:.5f} Validation Loss:{:.5f}'.format(avg_eval_acc, avg_eval_loss))
+            self._logger.info(
+                'Starting the Validation for Epoch {}:'.format(epoch))
+            avg_eval_acc, avg_eval_loss = self._valid_epoch(
+                eval_dataloader, self.model)
+            self._logger.info('==>Validation Acc:{:.5f} Validation Loss:{:.5f}'.format(
+                avg_eval_acc, avg_eval_loss))
             metrics['accuracy'].append(avg_eval_acc)
             metrics['loss'].append(avg_eval_loss)
             if self.config['hyper_tune']:
@@ -58,7 +62,8 @@ class TrajLocPredExecutor(AbstractExecutor):
                 tune.report(loss=avg_eval_loss, accuracy=avg_eval_acc)
             else:
                 save_name_tmp = 'ep_' + str(epoch) + '.m'
-                torch.save(self.model.state_dict(), self.tmp_path + save_name_tmp)
+                torch.save(self.model.state_dict(),
+                           self.tmp_path + save_name_tmp)
             self.scheduler.step(avg_eval_acc)
             # scheduler 会根据 avg_eval_acc 减小学习率
             # 若当前学习率小于特定值，则 early stop
@@ -86,7 +91,8 @@ class TrajLocPredExecutor(AbstractExecutor):
         if not os.path.exists(self.cache_dir):
             os.makedirs(self.cache_dir)
         # save optimizer when load epoch to train
-        torch.save((self.model.state_dict(), self.optimizer.state_dict()), cache_name)
+        torch.save((self.model.state_dict(),
+                   self.optimizer.state_dict()), cache_name)
 
     def evaluate(self, test_dataloader):
         self.model.train(False)
@@ -94,21 +100,22 @@ class TrajLocPredExecutor(AbstractExecutor):
         for batch in (pbar := tqdm.tqdm(test_dataloader)):
             pbar.set_description("Evaluating")
             batch.to_tensor(device=self.config['device'])
-            scores = self.model.predict_next_n(batch, 5)
+            scores_list = self.model.predict_next_n(batch, self.predict_next_n)
             if self.config['evaluate_method'] == 'popularity':
                 evaluate_input = {
                     'uid': batch['uid'].tolist(),
                     'loc_true': batch['target'].tolist(),
-                    'loc_pred': scores.tolist()
+                    'loc_pred': [score.tolist() for score in scores_list]
                 }
             else:
                 # negative sample
                 # loc_true is always 0
-                loc_true = [0] * self.config['batch_size']
+                loc_true = [self.predict_next_n * [0]] * \
+                    self.config['batch_size']
                 evaluate_input = {
                     'uid': batch['uid'].tolist(),
                     'loc_true': loc_true,
-                    'loc_pred': scores.tolist()
+                    'loc_pred': [score.tolist() for score in scores_list]
                 }
             self.evaluator.collect(evaluate_input)
         self.evaluator.save_result(self.evaluate_res_dir)
@@ -144,6 +151,11 @@ class TrajLocPredExecutor(AbstractExecutor):
         self.evaluator.clear()
         total_loss = []
         loss_func = self.loss_func or model.calculate_loss
+
+        # set the steps to [0] to be used in validation then we set it back
+        final_evaluation_steps = self.evaluator.steps_to_evaluate
+        self.evaluator.steps_to_evaluate = [0]
+
         for batch in (pbar := tqdm.tqdm(data_loader)):
             pbar.set_description("Validating")
             batch.to_tensor(device=self.config['device'])
@@ -154,7 +166,7 @@ class TrajLocPredExecutor(AbstractExecutor):
                 evaluate_input = {
                     'uid': batch['uid'].tolist(),
                     'loc_true': batch['target'].tolist(),
-                    'loc_pred': scores.tolist()
+                    'loc_pred': [scores.tolist()]
                 }
             else:
                 # negative sample
@@ -163,11 +175,15 @@ class TrajLocPredExecutor(AbstractExecutor):
                 evaluate_input = {
                     'uid': batch['uid'].tolist(),
                     'loc_true': loc_true,
-                    'loc_pred': scores.tolist()
+                    'loc_pred': [scores.tolist()]
                 }
             self.evaluator.collect(evaluate_input)
         avg_acc = self.evaluator.evaluate()[self.metrics]  # 随便选一个就行
         avg_loss = np.mean(total_loss, dtype=np.float64)
+
+        # set the evaluation steps back into the evaluator
+        self.evaluator.steps_to_evaluate = final_evaluation_steps
+
         return avg_acc, avg_loss
 
     def _build_optimizer(self):
@@ -187,9 +203,11 @@ class TrajLocPredExecutor(AbstractExecutor):
             optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.config['learning_rate'],
                                             weight_decay=self.config['L2'])
         elif self.config['optimizer'] == 'sparse_adam':
-            optimizer = torch.optim.SparseAdam(self.model.parameters(), lr=self.config['learning_rate'])
+            optimizer = torch.optim.SparseAdam(
+                self.model.parameters(), lr=self.config['learning_rate'])
         else:
-            self._logger.warning('Received unrecognized optimizer, set default Adam optimizer')
+            self._logger.warning(
+                'Received unrecognized optimizer, set default Adam optimizer')
             optimizer = optim.Adam(self.model.parameters(), lr=self.config['learning_rate'],
                                    weight_decay=self.config['L2'])
         return optimizer

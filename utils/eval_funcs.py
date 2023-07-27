@@ -50,15 +50,15 @@ def acc(loc_pred, loc_true):
     return loc_diff, np.mean(loc_diff == 0)
 
 
-def top_k(loc_pred, loc_true, topk):
+def top_k(loc_pred, loc_true, topk, step):
     """
     count the hit numbers of loc_true in topK of loc_pred, used to calculate Precision, Recall and F1-score,
     calculate the reciprocal rank, used to calcualte MRR,
     calculate the sum of DCG@K of the batch, used to calculate NDCG
 
     Args:
-        loc_pred: (batch_size * output_dim)
-        loc_true: (batch_size * 1)
+        loc_pred: list of (batch_size * output_dim) for each step
+        loc_true: (batch_size * 5), 5 is the number of steps we can predict
         topk:
 
     Returns:
@@ -68,14 +68,14 @@ def top_k(loc_pred, loc_true, topk):
             dcg (float): dcg
     """
     assert topk > 0, "top-k ACC评估方法：k值应不小于1"
-    loc_pred = torch.FloatTensor(loc_pred)
-    val, index = torch.topk(loc_pred, topk, 1)
-    index = index.numpy()
+    loc_pred_tesnor = torch.FloatTensor(loc_pred[step])
+    val_list, index_list = torch.topk(loc_pred_tesnor, topk, 1)
+    index_list = index_list.numpy()
     hit = 0
     rank = 0.0
     dcg = 0.0
-    for i, p in enumerate(index):
-        target = loc_true[i]
+    for i, p in enumerate(index_list):
+        target = loc_true[i][step]
         if target in p:
             hit += 1
             rank_list = list(p)
@@ -85,6 +85,19 @@ def top_k(loc_pred, loc_true, topk):
             dcg += 1.0 / np.log2(rank_index + 2)
     return hit, rank, dcg
 
+def prepare_target_refs_for_bleu(batch):
+    # loc_pred = batch['loc_pred']
+    # loc_true = batch['loc_true']
+
+     
+
+    # y_hat = torch.argmax(batch['loc_pred'], dim=1)
+    # for j in range(len(batch)):
+    #     preds = y_hat[j].reshape(PREDICTION).cpu().numpy().tolist()
+    #     refs = y[j].reshape(1,-1).cpu().numpy().tolist()
+    #     metrics["bleu"] += sentence_bleu(refs, preds)
+    pass
+ 
 def Precision_torch(preds, labels, topk):
     precision = []
     for i in range(preds.shape[0]):

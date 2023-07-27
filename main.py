@@ -12,7 +12,7 @@ from models.deepmove_model import DeepMove
 from utils.executor import TrajLocPredExecutor
 
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '4'
 
 # logging config to console
 root = logging.getLogger()
@@ -46,15 +46,15 @@ def run_model():
     config['model'] = "DeepMove"
     config['dataset'] = "foursquare_tky"
     config['saved_model'] = True
-    config['batch_size'] = 100
+    config['batch_size'] = 50
     config['max_epoch'] = 1
 
-    # to evaluate a pre-trained model, set exp_id to the experiment id of the pre-trained model
-    config['exp_id'] = 90097
-    config['train'] = False 
+    # # to evaluate a pre-trained model, set exp_id to the experiment id of the pre-trained model
+    # config['exp_id'] = 90097
+    # config['train'] = False 
 
     # new experiment id
-    config['exp_id'] = config['exp_id'] if config['exp_id'] else int(random.SystemRandom().random() * 100000)
+    config['exp_id'] = config['exp_id'] if "exp_id" in config else int(random.SystemRandom().random() * 100000)
 
     # seed
     seed = config.get('seed', 0)

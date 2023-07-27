@@ -1,14 +1,11 @@
 from torch import device
 
+
 def get_config():
     return {
         "task": "traj_loc_pred",
-        "model": "DeepMove",
-        "dataset": "foursquare_tky",
-        "saved_model": True,
-        "train": True,
         "seed": 0,
-        "batch_size": 15,
+        "train": True,
         "dataset_class": "TrajectoryDataset",
         "traj_encoder": "StandardTrajectoryEncoder",
         "executor": "TrajLocPredExecutor",
@@ -46,15 +43,23 @@ def get_config():
         "hyper_tune": False,
         "early_stop_lr": 9e-06,
         "debug": False,
+
+        # evaluation config
         "metrics": [
             "Recall",
             "F1",
             "MRR",
             "MAP",
-            "NDCG"
+            "NDCG",
+            # "ACC",
+            # "BLEU"
         ],
         "evaluate_method": "popularity",
-        "topk": 5,
+        "topk": [1, 3, 5],
+        "predict_next_n": 5,
+        "evaluate_steps_index": [4],
+
+        # dataset config
         "geo": {
             "including_types": [
                 "Point"

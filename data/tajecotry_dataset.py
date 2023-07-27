@@ -39,11 +39,13 @@ class TrajectoryDataset(AbstractDataset):
             if self.config['cache_dataset'] and os.path.exists(self.encoder.cache_file_name):
                 # load cache
                 f = open(self.encoder.cache_file_name, 'r')
+                self.logger.info('Loading data from cache...')
                 self.data = json.load(f)
                 self.pad_item = self.data['pad_item']
                 f.close()
             else:
                 if os.path.exists(self.cut_data_cache):
+                    self.logger.info('Loading cut data from cache...')
                     f = open(self.cut_data_cache, 'r')
                     cut_data = json.load(f)
                     f.close()
@@ -53,7 +55,7 @@ class TrajectoryDataset(AbstractDataset):
                         os.makedirs(self.cache_file_folder)
                     with open(self.cut_data_cache, 'w') as f:
                         json.dump(cut_data, f)
-                self.logger.info('finish cut data')
+                self.logger.info('Finish cut data')
                 encoded_data = self.encode_traj(cut_data)
                 self.data = encoded_data
                 self.pad_item = self.encoder.pad_item

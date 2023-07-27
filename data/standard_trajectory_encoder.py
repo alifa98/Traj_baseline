@@ -3,7 +3,7 @@ from data.abstract_trajectory_encoder import AbstractTrajectoryEncoder
 import data.utils
 
 parameter_list = ['dataset', 'min_session_len', 'min_sessions', 'traj_encoder', 'cut_method',
-                  'window_size', 'history_type', 'min_checkins', 'max_session_len']
+                  'window_size', 'history_type', 'min_checkins', 'max_session_len', 'predict_next_n']
 
 
 class StandardTrajectoryEncoder(AbstractTrajectoryEncoder):
@@ -33,6 +33,7 @@ class StandardTrajectoryEncoder(AbstractTrajectoryEncoder):
             # self.config['batch_size'] = 1
             self.feature_dict['history_loc'] = 'array of int'
             self.feature_dict['history_tim'] = 'array of int'
+        self.predict_next_n = self.config.get('predict_next_n', 1)
 
     def encode(self, uid, trajectories, negative_sample=None):
         """standard encoder use the same method as DeepMove
@@ -80,7 +81,11 @@ class StandardTrajectoryEncoder(AbstractTrajectoryEncoder):
             # 一条轨迹可以产生多条训练数据，根据第一个点预测第二个点，前两个点预测第三个点....
             for i in range(len(current_loc) - 1):
                 trace = []
-                target = current_loc[i+1]
+
+                # get next n as target, if not enough, just continue
+                if i + self.predict_next_n + 1 > len(current_loc):
+                    continue
+                target = current_loc[i+1:i+self.predict_next_n + 1]
                 target_tim = current_tim[i+1]
                 trace.append(history_loc.copy())
                 trace.append(history_tim.copy())

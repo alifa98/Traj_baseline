@@ -7,7 +7,6 @@ from torch.nn.utils.rnn import pad_packed_sequence
 from models.abstract_model import AbstractModel
 
 
-
 class Attn(nn.Module):
     """
     Attention Module. Heavily borrowed from Practical Pytorch
@@ -37,7 +36,8 @@ class Attn(nn.Module):
             [tensor]: (batch_size, state_len, history_len)
         """
         if self.method == 'dot':
-            history = history.permute(0, 2, 1)  # batch_size * hidden_size * history_len
+            # batch_size * hidden_size * history_len
+            history = history.permute(0, 2, 1)
             attn_energies = torch.bmm(out_state, history)
         elif self.method == 'general':
             history = self.attn(history)
@@ -60,13 +60,14 @@ class DeepMove(AbstractModel):
         self.device = config['device']
         self.rnn_type = config['rnn_type']
         self.evaluate_method = config['evaluate_method']
-
+        self.loc_padding_idx = data_feature['loc_pad']
+        self.time_padding_idx = data_feature['tim_pad']
         self.emb_loc = nn.Embedding(
             self.loc_size, self.loc_emb_size,
-            padding_idx=data_feature['loc_pad'])
+            padding_idx=self.loc_padding_idx)
         self.emb_tim = nn.Embedding(
             self.tim_size, self.tim_emb_size,
-            padding_idx=data_feature['tim_pad'])
+            padding_idx=self.time_padding_idx)
 
         input_size = self.loc_emb_size + self.tim_emb_size
         self.attn = Attn(self.attn_type, self.hidden_size, self.device)
@@ -155,9 +156,12 @@ class DeepMove(AbstractModel):
         # 因为是补齐了的，所以需要找到真正的 out
         origin_len = batch.get_origin_len('current_loc')
         final_out_index = torch.tensor(origin_len) - 1
-        final_out_index = final_out_index.reshape(final_out_index.shape[0], 1, -1)
-        final_out_index = final_out_index.repeat(1, 1, 2*self.hidden_size).to(self.device)
-        out = torch.gather(out, 1, final_out_index).squeeze(1)  # batch_size * (2*hidden_size)
+        final_out_index = final_out_index.reshape(
+            final_out_index.shape[0], 1, -1)
+        final_out_index = final_out_index.repeat(
+            1, 1, 2*self.hidden_size).to(self.device)
+        out = torch.gather(out, 1, final_out_index).squeeze(
+            1)  # batch_size * (2*hidden_size)
         out = self.dropout(out)
 
         y = self.fc_final(out)  # batch_size * loc_size
@@ -166,13 +170,40 @@ class DeepMove(AbstractModel):
 
     def predict(self, batch):
         score = self.forward(batch)
-        if self.evaluate_method == 'sample':
-            # build pos_neg_inedx
-            pos_neg_index = torch.cat((batch['target'].unsqueeze(1), batch['neg_loc']), dim=1)
-            score = torch.gather(score, 1, pos_neg_index)
+        # if self.evaluate_method == 'sample':
+        #     # build pos_neg_inedx
+        #     pos_neg_index = torch.cat(
+        #         (batch['target'].unsqueeze(1), batch['neg_loc']), dim=1)
+        #     score = torch.gather(score, 1, pos_neg_index)
         return score
+
+    def predict_next_n(self, batch, n):
+
+        
+        loc_len = batch.get_origin_len('current_loc')
+        history_len = batch.get_origin_len('history_loc')
+        
+        # this function predicts the next n locations
+        # it predicts one step then the top 1 prediction will be fed to network to predict the next step
+        scores_list = []
+        for i in range(n):
+            score = self.forward(batch)
+            _, y_hat = torch.max(score, dim=1)
+
+            # set the firt column of loc and time as padding then shift one to left
+            batch['current_loc'][:, 0] = self.loc_padding_idx
+            batch['current_tim'][:, 0] = self.time_padding_idx
+            batch['current_loc'] = torch.roll(batch['current_loc'], -1, dims=1)
+            batch['current_tim'] = torch.roll(batch['current_tim'], -1, dims=1)
+
+            # update current_loc based on prediction considering the length of current_loc for each sample
+            for j in range(batch['current_loc'].shape[0]):
+                batch['current_loc'][j, loc_len[j] - 1] = y_hat[j]
+
+            scores_list.append(score)
+        return scores_list
 
     def calculate_loss(self, batch):
         criterion = nn.NLLLoss().to(self.device)
         scores = self.forward(batch)
-        return criterion(scores, batch['target'])
+        return criterion(scores, batch['target'][:,0]) # next location (first step)
