@@ -42,12 +42,14 @@ def set_random_seed(seed):
 
 def run_model():
     config = get_config()
-    config['task'] = "traj_loc_pred"
+    config['dataset'] = "geolife_res7"
+    config['tim_max'] = 4373 
     config['model'] = "DeepMove"
-    config['dataset'] = "foursquare_tky"
+    
+    config['task'] = "traj_loc_pred"
     config['saved_model'] = True
     config['batch_size'] = 50
-    config['max_epoch'] = 1
+    config['max_epoch'] = 10
 
     # # to evaluate a pre-trained model, set exp_id to the experiment id of the pre-trained model
     # config['exp_id'] = 90097
