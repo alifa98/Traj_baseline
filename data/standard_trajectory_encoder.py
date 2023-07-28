@@ -13,7 +13,7 @@ class StandardTrajectoryEncoder(AbstractTrajectoryEncoder):
         self.uid = 0
         self.location2id = {}  # 因为原始数据集中的部分 loc id 不会被使用到因此这里需要重新编码一下
         self.loc_id = 0
-        self.tim_max = 47  # 时间编码方式得改变
+        self.tim_max = config['tim_max'] + config['predict_next_n'] 
         self.history_type = self.config['history_type']
         self.feature_dict = {'history_loc': 'int', 'history_tim': 'int',
                              'current_loc': 'int', 'current_tim': 'int',
@@ -60,12 +60,13 @@ class StandardTrajectoryEncoder(AbstractTrajectoryEncoder):
             current_tim = []
             for point in traj:
                 loc = point[4]
-                now_time = data.utils.parse_time(point[2])
+                # now_time = data.utils.parse_time(point[2])
+                now_time = point[2]
                 if loc not in self.location2id:
                     self.location2id[loc] = self.loc_id
                     self.loc_id += 1
                 current_loc.append(self.location2id[loc])
-                # 采用工作日编码到0-23，休息日编码到24-47
+                # 采用工作日编码到0-23，休息日编码到24-
                 time_code = self._time_encode(now_time)
                 current_tim.append(time_code)
             # 完成当前轨迹的编码，下面进行输入的形成
@@ -136,7 +137,9 @@ class StandardTrajectoryEncoder(AbstractTrajectoryEncoder):
         }
 
     def _time_encode(self, time):
-        if time.weekday() in [0, 1, 2, 3, 4]:
-            return time.hour
-        else:
-            return time.hour + 24
+        # if time.weekday() in [0, 1, 2, 3, 4]:
+        #     return time.hour
+        # else:
+        #     return time.hour + 24
+
+        return time
